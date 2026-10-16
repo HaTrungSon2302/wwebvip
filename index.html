@@ -42,6 +42,17 @@
   .tab{background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);padding:9px 12px;cursor:pointer;font-weight:500;font-size:13px;margin-bottom:-1px}
   .tab:hover{color:var(--text)}
   .tab.active{color:var(--text);border-bottom-color:var(--accent)}
+  .manager-nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+  .manager-nav .btn[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  .section-intro{margin-bottom:18px}
+  .section-intro h2{font-size:17px;font-weight:600;margin:0 0 4px}
+  .section-intro p{margin:0}
+  .target-control{margin-top:12px}
+  .target-control label{margin-bottom:5px}
+  .target-control .select{width:100%;max-width:100%}
+  .completion-check{display:inline-flex;align-items:center;gap:7px;border:1px solid #2b4a3c;border-radius:6px;padding:5px 9px;color:var(--done);cursor:pointer;margin:0}
+  .completion-check input{margin:0;accent-color:var(--done)}
+  .gen-completed-link{color:var(--done)}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(248px,1fr));gap:12px}
   .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;min-height:170px;display:flex;flex-direction:column}
   .card.empty{border-style:dashed;background:transparent}
@@ -103,6 +114,14 @@
     .form-grid{grid-template-columns:1fr}
     .form-grid .full{grid-column:1}
     .toolbar .small{margin-left:0}
+    .done-row{grid-template-columns:42px minmax(0,1fr);align-items:start}
+    .done-row .completed-at{grid-column:2}
+    .done-row .completed-actions{grid-column:2}
+  }
+  @media(max-width:600px){
+    .wrap{padding:20px 14px 36px}
+    .toolbar .input{min-width:0!important;width:100%}
+    .grid{grid-template-columns:minmax(0,1fr)}
   }
 </style>
 </head>
@@ -116,15 +135,25 @@
     <div class="actions">
       <button class="btn primary" onclick="openBulk()">＋ Nhập acc hàng loạt</button>
       <button class="btn ghost" onclick="openHistory()">Lịch sử</button>
-      <button class="btn ghost" onclick="exportDone()">Xuất acc hoàn thành</button>
+      <button class="btn ghost" id="exportDoneBtn" onclick="exportDone()">Xuất acc hoàn thành</button>
       <button class="btn red" onclick="resetAll()">Xóa dữ liệu</button>
     </div>
+  </div>
+
+  <nav class="manager-nav" aria-label="Chọn mục quản lý">
+    <button class="btn" id="standardManagerBtn" aria-pressed="true" onclick="setManager('standard')">Quản Lý Acc Free Fire</button>
+    <button class="btn" id="genManagerBtn" aria-pressed="false" onclick="setManager('gen')">Quản Lý Acc Gen</button>
+    <button class="btn gen-completed-link" id="genCompletedBtn" aria-pressed="false" onclick="setManager('gen','done')">Gen Huyền Thoại Sinh Tồn (0)</button>
+  </nav>
+  <div class="section-intro">
+    <h2 id="managerTitle">Quản Lý Acc Free Fire</h2>
+    <p class="small" id="managerHint">Nhập gmail|pass|uid, chọn rank mục tiêu riêng cho từng Tab.</p>
   </div>
 
   <div class="stats">
     <div class="stat"><div class="k">Tổng vị trí Tab</div><div class="v" id="stTotal">0</div></div>
     <div class="stat"><div class="k">Đang cày</div><div class="v" id="stRunning">0</div></div>
-    <div class="stat"><div class="k">Đã cày xong</div><div class="v" id="stDone">0</div></div>
+    <div class="stat"><div class="k" id="stDoneLabel">Đã cày xong</div><div class="v" id="stDone">0</div></div>
     <div class="stat"><div class="k">Đã bán</div><div class="v" id="stSold">0</div></div>
     <div class="stat"><div class="k">Tab trống</div><div class="v" id="stEmpty">0</div></div>
   </div>
@@ -144,7 +173,7 @@
   <div class="tabs">
     <button class="tab active" data-filter="all" onclick="setFilter('all',this)">Tất cả</button>
     <button class="tab" data-filter="running" onclick="setFilter('running',this)">Đang cày</button>
-    <button class="tab" data-filter="done" onclick="setFilter('done',this)">Đã cày xong</button>
+    <button class="tab" id="completedTab" data-filter="done" onclick="setFilter('done',this)">Đã cày xong</button>
     <button class="tab" data-filter="sold" onclick="setFilter('sold',this)">Đã bán</button>
     <button class="tab" data-filter="empty" onclick="setFilter('empty',this)">Tab trống</button>
     <button class="tab" data-filter="error" onclick="setFilter('error',this)">Lỗi</button>
@@ -155,7 +184,7 @@
 
 <dialog id="bulkDlg">
   <div class="modal-head">
-    <h3>Thêm danh sách tài khoản</h3>
+    <h3 id="bulkTitle">Thêm danh sách tài khoản</h3>
     <button class="mini" onclick="bulkDlg.close()">×</button>
   </div>
   <div class="modal-body">
@@ -206,6 +235,10 @@
         </select>
       </div>
       <div>
+        <label for="eTargetRank">Rank Sinh Tồn để báo hoàn thành</label>
+        <select id="eTargetRank" class="select" style="width:100%"></select>
+      </div>
+      <div class="full">
         <label>Ghi chú</label>
         <input id="eNote" class="input" style="width:100%" placeholder="Ví dụ: LV20, Rank BK...">
       </div>
@@ -246,198 +279,268 @@
 
 <script>
 const KEY='tizi_ff_manager_v1';
-let state = JSON.parse(localStorage.getItem(KEY) || 'null') || {
-  ldCount:0,
-  slots:[],
-  queue:[],
-  completed:[],
-  history:[],
-  apiUrl:'',
-  autoCheck:false
+// Giữ nguyên khóa dữ liệu cũ; Acc Gen có vùng dữ liệu riêng trong state.gen.
+let state=JSON.parse(localStorage.getItem(KEY)||'null')||{
+  ldCount:0,slots:[],queue:[],completed:[],history:[],apiUrl:'',autoCheck:false
 };
+let activeModule=state.activeModule==='gen'?'gen':'standard';
 let filter='all';
 let editing=null;
-
+let bulkModule=activeModule;
 let autoCheckTimer=null;
 let autoCheckBusy=false;
+const manualChecks=new Set();
+// Các mốc điểm được giữ theo bảng rank của bản HTML gốc.
+const RANK_TARGETS=[
+  {points:0,name:'Đồng I'},
+  {points:1100,name:'Đồng II'},
+  {points:1200,name:'Đồng III'},
+  {points:1300,name:'Bạc I'},
+  {points:1400,name:'Bạc II'},
+  {points:1500,name:'Bạc III'},
+  {points:1600,name:'Vàng I'},
+  {points:1725,name:'Vàng II'},
+  {points:1850,name:'Vàng III'},
+  {points:1975,name:'Vàng IV'},
+  {points:2100,name:'Bạch Kim I'},
+  {points:2225,name:'Bạch Kim II'},
+  {points:2350,name:'Bạch Kim III'},
+  {points:2475,name:'Bạch Kim IV'},
+  {points:2600,name:'Kim Cương I'},
+  {points:2750,name:'Kim Cương II'},
+  {points:2900,name:'Kim Cương III'},
+  {points:3050,name:'Kim Cương IV'},
+  {points:3200,name:'Huyền Thoại'}
+];
 
+function board(moduleId=activeModule){return moduleId==='gen'?state.gen:state;}
+function moduleName(moduleId=activeModule){return moduleId==='gen'?'Acc Gen':'Acc Free Fire';}
+function completionTitle(moduleId=activeModule){return moduleId==='gen'?'Gen Huyền Thoại Sinh Tồn':'Đã cày xong';}
+function defaultTarget(moduleId){return moduleId==='gen'?3200:2100;}
+function validTarget(value){
+  return value!==null&&value!==undefined&&value!==''&&RANK_TARGETS.some(r=>r.points===Number(value));
+}
+function targetPoints(slot,moduleId=activeModule){
+  return validTarget(slot.targetPoints)?Number(slot.targetPoints):defaultTarget(moduleId);
+}
+function targetName(slot,moduleId=activeModule){
+  return RANK_TARGETS.find(r=>r.points===targetPoints(slot,moduleId)).name;
+}
+function blankSlot(ld,moduleId,target){
+  return {ld,mail:'',pass:'',uid:'',status:'empty',note:'',startedAt:'',info:null,
+    targetPoints:validTarget(target)?Number(target):defaultTarget(moduleId)};
+}
+function normalizeBoard(data,moduleId){
+  if(!Array.isArray(data.slots)) data.slots=[];
+  if(!Array.isArray(data.queue)) data.queue=[];
+  if(!Array.isArray(data.completed)) data.completed=[];
+  if(!Number.isInteger(data.ldCount)||data.ldCount<0) data.ldCount=data.slots.length;
+  data.slots=Array.from({length:data.ldCount},(_,i)=>{
+    const slot=data.slots[i]||blankSlot(i+1,moduleId);
+    slot.ld=i+1;
+    slot.targetPoints=targetPoints(slot,moduleId);
+    if(!('info' in slot)||slot.info?.loading) slot.info=null;
+    return slot;
+  });
+}
+function normalize(){
+  normalizeBoard(state,'standard');
+  if(!state.gen||typeof state.gen!=='object'||Array.isArray(state.gen)) state.gen={};
+  normalizeBoard(state.gen,'gen');
+  if(!Array.isArray(state.history)) state.history=[];
+  if(typeof state.apiUrl!=='string') state.apiUrl='';
+  if(typeof state.autoCheck!=='boolean') state.autoCheck=false;
+  state.activeModule=activeModule;
+  save();
+}
 function init(){
   normalize();
-  document.getElementById('apiUrl').value=state.apiUrl||'';
+  document.getElementById('apiUrl').value=state.apiUrl;
   render();
   if(state.autoCheck) startAutoCheck();
 }
-function normalize(){
-  state.slots = Array.from({length:state.ldCount},(_,i)=>{
-    const old=state.slots[i];
-    return old || {ld:i+1,mail:'',pass:'',uid:'',status:'empty',note:'',startedAt:'',info:null};
-  });
-  state.slots.forEach((s,i)=>{
-    s.ld=i+1;
-    if(!('info' in s)) s.info=null;
-  });
-  if(typeof state.apiUrl!=='string') state.apiUrl='';
-  if(typeof state.autoCheck!=='boolean') state.autoCheck=false;
-  save();
-}
-function save(){ localStorage.setItem(KEY,JSON.stringify(state)); }
+function save(){localStorage.setItem(KEY,JSON.stringify(state));}
 function saveApiUrl(silent=false){
   state.apiUrl=document.getElementById('apiUrl').value.trim();
   save();
-  if(!silent) toast('Đã lưu link API check LV');
+  if(!silent) toast('Đã lưu link API check info');
 }
-function esc(s=''){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
-function now(){return new Date().toLocaleString('vi-VN')}
+function esc(s=''){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
+function jsq(s=''){
+  return esc(String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/[\r\n\u2028\u2029]/g,' '));
+}
+function now(){return new Date().toLocaleString('vi-VN');}
+function logHistory(moduleId,ld,text){state.history.unshift({time:now(),module:moduleId,ld,text});}
+let toastTimer=null;
 function toast(msg){
-  const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'),1800);
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>t.classList.remove('show'),2600);
 }
 function label(status){
-  return {
-    running:'Đang cày',
-    done:'Đã cày xong',
-    sold:'Đã bán',
-    error:'Lỗi',
-    empty:'Tab trống'
-  }[status]||status;
+  return {running:'Đang cày',done:'Đã cày xong',sold:'Đã bán',error:'Lỗi',empty:'Tab trống'}[status]||status;
 }
-function render(){
-  const q=document.getElementById('search').value.trim().toLowerCase();
+function setManager(moduleId,nextFilter='all'){
+  activeModule=moduleId==='gen'?'gen':'standard';
+  filter=nextFilter;
+  state.activeModule=activeModule;
+  document.getElementById('search').value='';
+  save();render();
+}
+function updateManagerUi(){
+  const isGen=activeModule==='gen';
+  const data=board();
+  document.getElementById('standardManagerBtn').setAttribute('aria-pressed',String(!isGen));
+  document.getElementById('genManagerBtn').setAttribute('aria-pressed',String(isGen&&filter!=='done'));
+  document.getElementById('genCompletedBtn').setAttribute('aria-pressed',String(isGen&&filter==='done'));
+  document.getElementById('genCompletedBtn').textContent=`Gen Huyền Thoại Sinh Tồn (${state.gen.completed.length})`;
+  document.getElementById('managerTitle').textContent=isGen?'Quản Lý Acc Gen':'Quản Lý Acc Free Fire';
+  document.getElementById('managerHint').textContent=isGen
+    ?'Nhập gmail|pass|uid. Chọn rank ở từng Tab; khi check đạt mục tiêu hoặc tích Hoàn thành, acc chuyển sang Gen Huyền Thoại Sinh Tồn.'
+    :'Nhập gmail|pass|uid, chọn rank mục tiêu riêng cho từng Tab. Acc hoàn thành chuyển sang Đã cày xong.';
+  document.getElementById('stDoneLabel').textContent=isGen?'Gen hoàn thành':'Đã cày xong';
+  document.getElementById('completedTab').textContent=`${completionTitle()} (${data.completed.length})`;
+  document.getElementById('exportDoneBtn').textContent=isGen?'Xuất acc Gen hoàn thành':'Xuất acc hoàn thành';
+  document.querySelectorAll('.tabs .tab').forEach(el=>el.classList.toggle('active',el.dataset.filter===filter));
+}
+function accountLine(acc,moduleId=activeModule){
+  return `${acc.mail}|${acc.pass}${moduleId==='gen'?'|'+(acc.uid||''):''}`;
+}
+function completedDetail(acc,moduleId){
+  if(moduleId!=='gen') return '';
+  const rank=validTarget(acc.targetPoints)?`Mục tiêu: ${targetName(acc,moduleId)}`:'';
+  const actual=acc.info&&!acc.info.error?` · Rank đã check: ${rankFromBRPoints(acc.info.brPoints)}`:'';
+  return `<div class="small">${esc(rank+actual)}</div>`;
+}
+function renderCompleted(data,q){
+  // Giữ index gốc để xóa đúng acc ngay cả khi đang tìm kiếm.
+  const arr=data.completed.map((item,index)=>({item,index})).filter(({item:x,index})=>{
+    const blob=`${index+1} ${x.mail} ${x.pass} ${x.uid||''} ${x.note||''}`.toLowerCase();
+    return !q||blob.includes(q);
+  });
   const grid=document.getElementById('grid');
-
-  if(filter==='done'){
-    const arr=state.completed.filter((x,i)=>{
-      const blob=`${i+1} ${x.mail} ${x.pass} ${x.uid||''} ${x.note||''}`.toLowerCase();
-      return !q || blob.includes(q);
-    });
-    if(!arr.length){
-      grid.innerHTML=`<div class="empty-msg">Chưa có acc nào trong mục đã cày xong.</div>`;
-    }else{
-      grid.innerHTML = `<div class="done-wrap">
-        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-          <div>
-            <div style="font-size:20px;font-weight:900">Mục đã cày xong</div>
-            <div class="small">Mỗi dòng 1 tài khoản dạng gmail|pass</div>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn ghost" onclick="copyDoneAll()">Sao chép tất cả</button>
-            <button class="btn primary" onclick="exportDone()">Xuất TXT</button>
-            <button class="btn red" onclick="deleteAllCompleted()">Xóa hết</button>
-          </div>
-        </div>
-        <div class="history done-list">
-          <div class="done-row" style="font-weight:800;color:#b8c5dd;background:var(--surface2)">
-            <div>STT</div><div>Dòng acc</div><div>Hoàn thành</div><div>Thao tác</div>
-          </div>
-          ${arr.map((x,i)=>`
-            <div class="done-row">
-              <div><b>${i+1}</b></div>
-              <div class="mono">${esc(x.mail+'|'+x.pass)}</div>
-              <div>${esc(x.completedAt||'')}</div>
-              <div style="display:flex;gap:6px;flex-wrap:wrap">
-                <button class="mini" onclick="copyText('${jsq(x.mail+'|'+x.pass)}')">Copy</button>
-                <button class="mini danger" onclick="deleteCompleted(${i})">Xóa</button>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-      </div>`;
-    }
-    updateStats();
+  if(!arr.length){
+    grid.innerHTML=`<div class="empty-msg">${q?'Không có acc phù hợp với tìm kiếm.':`Chưa có acc nào trong mục ${esc(completionTitle())}.`}</div>`;
     return;
   }
-
-  const arr=state.slots.filter(s=>{
-    const okFilter=filter==='all'||s.status===filter;
-    const blob=`${s.ld} ${s.mail} ${s.uid} ${s.note}`.toLowerCase();
-    return okFilter && (!q || blob.includes(q));
-  });
-  grid.innerHTML=arr.length
-    ? arr.map(cardHtml).join('')
-    : `<div class="empty-msg">${state.ldCount===0?'Chưa có Tab nào. Bấm “＋ Thêm Tab” để tạo Tab đầu tiên.':'Không có dữ liệu phù hợp.'}</div>`;
+  grid.innerHTML=`<div class="done-wrap">
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      <div>
+        <div style="font-size:20px;font-weight:600">${esc(activeModule==='gen'?completionTitle():'Mục đã cày xong')}</div>
+        <div class="small">Mỗi dòng 1 tài khoản dạng ${activeModule==='gen'?'gmail|pass|uid':'gmail|pass'}</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn ghost" onclick="copyDoneAll()">Sao chép tất cả</button>
+        <button class="btn primary" onclick="exportDone()">Xuất TXT</button>
+        <button class="btn red" onclick="deleteAllCompleted()">Xóa hết</button>
+      </div>
+    </div>
+    <div class="history done-list">
+      <div class="done-row" style="font-weight:600;color:#b8c5dd;background:var(--surface2)">
+        <div>STT</div><div>Dòng acc</div><div class="completed-at">Hoàn thành</div><div class="completed-actions">Thao tác</div>
+      </div>
+      ${arr.map(({item:x,index},i)=>`<div class="done-row">
+        <div><b>${i+1}</b></div>
+        <div><div class="mono">${esc(accountLine(x))}</div>${completedDetail(x,activeModule)}</div>
+        <div class="completed-at">${esc(x.completedAt||'')}</div>
+        <div class="completed-actions" style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="mini" onclick="copyText('${jsq(accountLine(x))}')">Copy</button>
+          <button class="mini danger" onclick="deleteCompleted(${index})">Xóa</button>
+        </div>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+function render(){
+  updateManagerUi();
+  const data=board();
+  const q=document.getElementById('search').value.trim().toLowerCase();
+  if(filter==='done'){
+    renderCompleted(data,q);
+  }else{
+    const arr=data.slots.filter(s=>{
+      const okFilter=filter==='all'||s.status===filter;
+      const blob=`${s.ld} ${s.mail} ${s.uid} ${s.note} ${targetName(s)}`.toLowerCase();
+      return okFilter&&(!q||blob.includes(q));
+    });
+    document.getElementById('grid').innerHTML=arr.length
+      ?arr.map(s=>cardHtml(s)).join('')
+      :`<div class="empty-msg">${data.ldCount===0?`Chưa có Tab ${activeModule==='gen'?'Gen ':''}nào. Bấm “＋ Thêm Tab” để tạo Tab đầu tiên.`:'Không có dữ liệu phù hợp.'}</div>`;
+  }
   updateStats();
+}
+function rankOptions(selected){
+  return RANK_TARGETS.map(r=>`<option value="${r.points}"${r.points===Number(selected)?' selected':''}>${esc(r.name)} · ${r.points} điểm</option>`).join('');
+}
+function targetHtml(s){
+  return `<div class="target-control">
+    <label for="target-${activeModule}-${s.ld}">Rank Sinh Tồn để báo hoàn thành</label>
+    <select id="target-${activeModule}-${s.ld}" class="select" onchange="setTargetRank(${s.ld},this.value)">${rankOptions(targetPoints(s))}</select>
+  </div>`;
+}
+function setTargetRank(ld,value,moduleId=activeModule){
+  const s=board(moduleId).slots[ld-1];
+  if(!s||!validTarget(value)) return;
+  s.targetPoints=Number(value);
+  logHistory(moduleId,ld,`Chọn mục tiêu ${targetName(s,moduleId)} (${s.targetPoints} điểm)`);
+  save();render();
+  toast(`Tab ${ld}: hoàn thành khi check đạt ${targetName(s,moduleId)}`);
 }
 function cardHtml(s){
   if(s.status==='empty'){
-    return `<div class="card empty">
-      <div class="card-head"><div class="ld">Tab ${s.ld}</div><div class="badge empty">${label('empty')}</div></div>
+    return `<div class="card empty" data-slot="${s.ld}">
+      <div class="card-head"><div class="ld">${activeModule==='gen'?'Gen · ':''}Tab ${s.ld}</div><div class="badge empty">${label('empty')}</div></div>
       <div class="mail">Chưa có tài khoản</div>
       <div class="meta">Vị trí này đang sẵn sàng nhận acc tiếp theo.</div>
+      ${targetHtml(s)}
       <div class="card-actions">
         <button class="mini ok" onclick="assignNext(${s.ld})">＋ Lấy acc tiếp theo</button>
         <button class="mini" onclick="manualInput(${s.ld})">Nhập thủ công</button>
       </div>
     </div>`;
   }
-  return `<div class="card ${s.status}">
-    <div class="card-head"><div class="ld">Tab ${s.ld}</div><div class="badge ${s.status}">${label(s.status)}</div></div>
+  return `<div class="card ${s.status}" data-slot="${s.ld}">
+    <div class="card-head"><div class="ld">${activeModule==='gen'?'Gen · ':''}Tab ${s.ld}</div><div class="badge ${esc(s.status)}">${esc(label(s.status))}</div></div>
     <div class="mail">${esc(s.mail)}</div>
-    <div class="meta">
-      UID: ${esc(s.uid||'—')}<br>
+    <div class="meta">UID: ${esc(s.uid||'—')}<br>
       ${s.note?`Ghi chú: ${esc(s.note)}<br>`:''}
       ${s.startedAt?`Bắt đầu: ${esc(s.startedAt)}`:''}
     </div>
+    ${targetHtml(s)}
     ${infoHtml(s)}
     <div class="card-actions">
       <button class="mini" onclick="copyText('${jsq(s.mail)}')">Gmail</button>
       <button class="mini" onclick="copyText('${jsq(s.mail+'|'+s.pass)}')">Gmail|Pass</button>
+      ${activeModule==='gen'?`<button class="mini" onclick="copyText('${jsq(accountLine(s))}')">Gmail|Pass|UID</button>`:''}
       <button class="mini" onclick="checkAccInfo(${s.ld})">Check Info</button>
-      ${s.status==='running'?`<button class="mini ok" onclick="completeSlot(${s.ld})">Cày xong</button>`:''}
+      ${s.status==='running'?(activeModule==='gen'
+        ?`<label class="completion-check"><input type="checkbox" aria-label="Hoàn thành Tab ${s.ld}" onchange="if(this.checked) completeSlot(${s.ld})">Hoàn thành</label>`
+        :`<button class="mini ok" onclick="completeSlot(${s.ld})">Cày xong</button>`):''}
       ${s.status==='done'?`<button class="mini warn" onclick="markSold(${s.ld})">Đã bán</button>`:''}
       <button class="mini" onclick="editSlot(${s.ld})">Sửa</button>
       <button class="mini danger" onclick="clearSlot(${s.ld})">↻ Thay acc</button>
     </div>
   </div>`;
 }
-
-
-
+function numericPoints(points){
+  if(points===null||points===undefined||typeof points==='boolean'||String(points).trim()==='') return NaN;
+  return Number(points);
+}
 function rankFromBRPoints(points){
-  const p=Number(points);
-  if(!Number.isFinite(p)) return 'N/A';
-
-  if(p < 1100) return 'Đồng I';
-  if(p < 1200) return 'Đồng II';
-  if(p < 1300) return 'Đồng III';
-
-  if(p < 1400) return 'Bạc I';
-  if(p < 1500) return 'Bạc II';
-  if(p < 1600) return 'Bạc III';
-
-  if(p < 1725) return 'Vàng I';
-  if(p < 1850) return 'Vàng II';
-  if(p < 1975) return 'Vàng III';
-  if(p < 2100) return 'Vàng IV';
-
-  if(p < 2225) return 'Bạch Kim I';
-  if(p < 2350) return 'Bạch Kim II';
-  if(p < 2475) return 'Bạch Kim III';
-  if(p < 2600) return 'Bạch Kim IV';
-
-  if(p < 2750) return 'Kim Cương I';
-  if(p < 2900) return 'Kim Cương II';
-  if(p < 3050) return 'Kim Cương III';
-  if(p < 3200) return 'Kim Cương IV';
-
-  return 'Huyền Thoại';
+  const p=numericPoints(points);
+  if(!Number.isFinite(p)||p<0) return 'N/A';
+  return [...RANK_TARGETS].reverse().find(r=>p>=r.points)?.name||'N/A';
 }
-
-function reachedTargetRankByPoints(points){
-  const p=Number(points);
-  return Number.isFinite(p) && p >= 2100;
+function reachedTargetRankByPoints(points,slot,moduleId=activeModule){
+  const p=numericPoints(points);
+  return Number.isFinite(p)&&p>=targetPoints(slot,moduleId);
 }
-
 function infoHtml(s){
   const i=s.info;
-  if(!i){
-    return `<div class="acc-info"><div class="info-title">Thông tin Free Fire</div><div class="small">Chưa check thông tin acc.</div></div>`;
-  }
-  if(i.loading){
-    return `<div class="acc-info loading"><div class="info-title">Thông tin Free Fire</div><div class="small">Đang lấy dữ liệu...</div></div>`;
-  }
-  if(i.error){
-    return `<div class="acc-info"><div class="info-title">Thông tin Free Fire</div><div style="color:#ff9198">${esc(i.error)}</div></div>`;
-  }
+  if(!i) return '<div class="acc-info"><div class="info-title">Thông tin Free Fire</div><div class="small">Chưa check thông tin acc.</div></div>';
+  if(i.loading) return '<div class="acc-info loading"><div class="info-title">Thông tin Free Fire</div><div class="small">Đang lấy dữ liệu...</div></div>';
+  if(i.error) return `<div class="acc-info"><div class="info-title">Thông tin Free Fire</div><div style="color:#ff9198">${esc(i.error)}</div></div>`;
   return `<div class="acc-info">
     <div class="info-title">Thông tin Free Fire</div>
     <div class="info-row"><span class="info-k">Tên</span><span class="info-v">${esc(i.name||'N/A')}</span></div>
@@ -445,509 +548,335 @@ function infoHtml(s){
     <div class="info-row"><span class="info-k">Level</span><span class="info-v">LV ${esc(i.level??'N/A')}</span></div>
     <div class="info-row"><span class="info-k">EXP</span><span class="info-v">${esc(i.exp??'N/A')}</span></div>
     <div class="info-row"><span class="info-k">Rank Sinh Tồn</span><span class="info-v">${esc(rankFromBRPoints(i.brPoints))}</span></div>
+    <div class="info-row"><span class="info-k">Điểm Sinh Tồn</span><span class="info-v">${esc(i.brPoints??'N/A')}</span></div>
     <div class="info-row"><span class="info-k">Khu vực</span><span class="info-v">${esc(i.region||'N/A')}</span></div>
     <div class="info-row"><span class="info-k">Ban</span><span class="info-v">${esc(i.banStatus||'N/A')}</span></div>
   </div>`;
 }
-
-
 function updateAutoCheckUi(){
   const btn=document.getElementById('autoCheckBtn');
-  if(!btn) return;
-  if(state.autoCheck){
-    btn.textContent='Tắt auto check';
-    btn.className='btn red';
-  }else{
-    btn.textContent='▶ Auto check 5 giây';
-    btn.className='btn green';
-  }
+  btn.textContent=state.autoCheck?'Tắt auto check':'▶ Auto check 5 giây';
+  btn.className=state.autoCheck?'btn red':'btn green';
+  btn.title='Check cả Acc Free Fire và Acc Gen, theo rank mục tiêu của từng Tab.';
 }
-
 function toggleAutoCheck(){
   state.autoCheck=!state.autoCheck;
   save();
-  if(state.autoCheck) startAutoCheck();
-  else stopAutoCheck();
+  if(state.autoCheck) startAutoCheck();else stopAutoCheck();
 }
-
 function startAutoCheck(){
-  state.autoCheck=true;
-  save();
-  updateAutoCheckUi();
+  state.autoCheck=true;save();updateAutoCheckUi();
   if(autoCheckTimer) clearInterval(autoCheckTimer);
   checkAllAccounts();
   autoCheckTimer=setInterval(checkAllAccounts,5000);
 }
-
 function stopAutoCheck(){
-  state.autoCheck=false;
-  save();
-  if(autoCheckTimer){
-    clearInterval(autoCheckTimer);
-    autoCheckTimer=null;
-  }
+  state.autoCheck=false;save();
+  if(autoCheckTimer){clearInterval(autoCheckTimer);autoCheckTimer=null;}
   updateAutoCheckUi();
 }
-
+function accountSnapshot(s){return {uid:s.uid,mail:s.mail,pass:s.pass};}
+function isCurrentAccount(moduleId,slot,snapshot){
+  return board(moduleId).slots[slot.ld-1]===slot&&slot.status!=='empty'
+    &&slot.uid===snapshot.uid&&slot.mail===snapshot.mail&&slot.pass===snapshot.pass;
+}
+async function fetchAccountInfo(base,uid){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),15000);
+  try{
+    const sep=base.includes('?')?'&':'?';
+    const res=await fetch(`${base}${sep}uid=${encodeURIComponent(uid)}`,{cache:'no-store',signal:controller.signal});
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data=await res.json();
+    const basic=data.BasicInformation||{};
+    const activity=data.ActivityInformation||{};
+    return {
+      name:basic.Name??'N/A',uid:basic.UID??uid,level:basic.Level??'N/A',exp:basic.Exp??'N/A',
+      brPoints:activity.BRPoints??'N/A',region:basic.Region??data.server_used??'N/A',
+      banStatus:data.BanStatus??'N/A',checkedAt:now()
+    };
+  }finally{clearTimeout(timer);}
+}
 async function checkAllAccounts(){
   if(autoCheckBusy) return;
   const base=(state.apiUrl||document.getElementById('apiUrl').value||'').trim();
-  if(!base){
-    stopAutoCheck();
-    toast('Hãy nhập URL API trước khi bật auto check');
-    return;
-  }
-
-  const targets=state.slots.filter(s=>s.status!=='empty' && s.uid);
-  if(!targets.length){
-    updateAutoCheckUi();
-    return;
-  }
-
+  if(!base){stopAutoCheck();toast('Hãy nhập URL API trước khi bật auto check');return;}
+  const targets=['standard','gen'].flatMap(moduleId=>board(moduleId).slots
+    .filter(s=>s.status!=='empty'&&s.uid)
+    .map(s=>({moduleId,slot:s,snapshot:accountSnapshot(s)})));
+  if(!targets.length){updateAutoCheckUi();return;}
   autoCheckBusy=true;
-
   try{
     const autoCompleted=[];
-    // Check lần lượt để giảm nguy cơ dồn quá nhiều request cùng lúc.
-    for(const s of targets){
-      const sep=base.includes('?')?'&':'?';
+    for(const {moduleId,slot:s,snapshot} of targets){
+      if(!isCurrentAccount(moduleId,s,snapshot)) continue;
       try{
-        const res=await fetch(`${base}${sep}uid=${encodeURIComponent(s.uid)}`, {cache:'no-store'});
-        if(!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data=await res.json();
-
-        const basic=data.BasicInformation||{};
-        const activity=data.ActivityInformation||{};
-        s.info={
-          name:basic.Name ?? 'N/A',
-          uid:basic.UID ?? s.uid,
-          level:basic.Level ?? 'N/A',
-          exp:basic.Exp ?? 'N/A',
-          brPoints:activity.BRPoints ?? 'N/A',
-          region:basic.Region ?? data.server_used ?? 'N/A',
-          banStatus:data.BanStatus ?? 'N/A',
-          checkedAt:now()
-        };
-
-        if(s.status==='running' && reachedTargetRankByPoints(s.info.brPoints)){
-          autoCompleted.push({ld:s.ld,brPoints:s.info.brPoints});
+        const info=await fetchAccountInfo(base,snapshot.uid);
+        // Không ghi kết quả của acc cũ vào acc mới, kể cả khi đổi mục đang xem.
+        if(!isCurrentAccount(moduleId,s,snapshot)) continue;
+        s.info=info;
+        if(s.status==='running'&&reachedTargetRankByPoints(info.brPoints,s,moduleId)){
+          autoCompleted.push({moduleId,slot:s,snapshot});
         }
       }catch(err){
-        s.info={error:`Không lấy được dữ liệu: ${err.message}`};
+        if(isCurrentAccount(moduleId,s,snapshot)) s.info={error:`Không lấy được dữ liệu: ${err.name==='AbortError'?'API phản hồi quá lâu':err.message}`};
       }
     }
-    save();
-
-    // Tự động đưa acc đạt Bạch Kim I trở lên sang mục Đã cày xong.
-    for(const x of autoCompleted){
-      const current=state.slots[x.ld-1];
-      if(current && current.status==='running'){
-        state.history.unshift({time:now(),ld:x.ld,text:`Đạt mục tiêu ${rankFromBRPoints(x.brPoints)} (${x.brPoints} điểm) → tự động hoàn thành`});
-        completeSlot(x.ld);
+    for(const {moduleId,slot:s,snapshot} of autoCompleted){
+      if(isCurrentAccount(moduleId,s,snapshot)&&s.status==='running'&&!s.info?.loading&&!s.info?.error
+        &&reachedTargetRankByPoints(s.info?.brPoints,s,moduleId)){
+        logHistory(moduleId,s.ld,`Đạt mục tiêu ${targetName(s,moduleId)} (${s.info.brPoints} điểm) → tự động hoàn thành`);
+        completeSlot(s.ld,moduleId,'auto');
       }
     }
-
-    render();
-  }finally{
-    autoCheckBusy=false;
-    updateAutoCheckUi();
-  }
+    save();render();
+  }finally{autoCheckBusy=false;updateAutoCheckUi();}
 }
-
-async function checkAccInfo(ld){
-  const s=state.slots[ld-1];
-  if(!s || s.status==='empty') return;
-  if(!s.uid){
-    toast(`Tab ${ld} chưa có UID`);
-    editSlot(ld);
-    return;
-  }
-
+async function checkAccInfo(ld,moduleId=activeModule){
+  const s=board(moduleId).slots[ld-1];
+  if(!s||s.status==='empty') return;
+  if(!s.uid){toast(`Tab ${ld} chưa có UID`);editSlot(ld,moduleId);return;}
   const base=(state.apiUrl||document.getElementById('apiUrl').value||'').trim();
-  if(!base){
-    toast('Hãy nhập URL API info ở thanh trên cùng');
-    document.getElementById('apiUrl').focus();
-    return;
-  }
-
-  state.apiUrl=base;
-  s.info={loading:true};
-  save();
-  render();
-
+  if(!base){toast('Hãy nhập URL API info ở thanh trên cùng');document.getElementById('apiUrl').focus();return;}
+  const key=`${moduleId}:${ld}`;
+  if(manualChecks.has(key)){toast('Tab này đang check thông tin');return;}
+  manualChecks.add(key);
+  const snapshot=accountSnapshot(s);
+  state.apiUrl=base;s.info={loading:true};save();render();
   try{
-    const sep=base.includes('?')?'&':'?';
-    const res=await fetch(`${base}${sep}uid=${encodeURIComponent(s.uid)}`, {cache:'no-store'});
-    if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data=await res.json();
-
-    const basic=data.BasicInformation||{};
-    const activity=data.ActivityInformation||{};
-    s.info={
-      name:basic.Name ?? 'N/A',
-      uid:basic.UID ?? s.uid,
-      level:basic.Level ?? 'N/A',
-      exp:basic.Exp ?? 'N/A',
-      brPoints:activity.BRPoints ?? 'N/A',
-      region:basic.Region ?? data.server_used ?? 'N/A',
-      banStatus:data.BanStatus ?? 'N/A',
-      checkedAt:now()
-    };
-    const rankNow=rankFromBRPoints(s.info.brPoints);
-    state.history.unshift({time:now(),ld,text:`Check info UID ${s.uid}: LV ${s.info.level}, ${rankNow}, EXP ${s.info.exp}`});
-
-    if(s.status==='running' && reachedTargetRankByPoints(s.info.brPoints)){
-      state.history.unshift({time:now(),ld,text:`Đạt mục tiêu ${rankNow} (${s.info.brPoints} điểm) → tự động hoàn thành`});
-      save();
-      completeSlot(ld);
-      toast(`Tab ${ld} đã đạt ${rankNow} → chuyển sang Đã cày xong`);
+    const info=await fetchAccountInfo(base,snapshot.uid);
+    if(!isCurrentAccount(moduleId,s,snapshot)) return;
+    s.info=info;
+    const rankNow=rankFromBRPoints(info.brPoints);
+    logHistory(moduleId,ld,`Check info UID ${s.uid}: LV ${info.level}, ${rankNow}, EXP ${info.exp}`);
+    if(s.status==='running'&&reachedTargetRankByPoints(info.brPoints,s,moduleId)){
+      logHistory(moduleId,ld,`Đạt mục tiêu ${targetName(s,moduleId)} (${info.brPoints} điểm) → tự động hoàn thành`);
+      completeSlot(ld,moduleId,'auto');
       return;
     }
-
-    save();
-    render();
-    toast(`Tab ${ld}: LV ${s.info.level} • ${rankNow}`);
+    save();render();toast(`${moduleName(moduleId)} · Tab ${ld}: LV ${info.level} • ${rankNow}`);
   }catch(err){
-    s.info={error:`Không lấy được dữ liệu: ${err.message}`};
-    save();
-    render();
-    toast(`Check info Tab ${ld} thất bại`);
-  }
+    if(!isCurrentAccount(moduleId,s,snapshot)) return;
+    s.info={error:`Không lấy được dữ liệu: ${err.name==='AbortError'?'API phản hồi quá lâu':err.message}`};
+    save();render();toast(`Check info Tab ${ld} thất bại`);
+  }finally{manualChecks.delete(key);}
 }
-function jsq(s=''){return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,' ')}
 function updateStats(){
-  const count=x=>state.slots.filter(s=>s.status===x).length;
-  stTotal.textContent=state.ldCount;
-  stRunning.textContent=count('running');
-  stDone.textContent=state.completed.length;
-  stSold.textContent=count('sold');
-  stEmpty.textContent=count('empty');
-  queueInfo.textContent=`Hàng chờ: ${state.queue.length} acc`;
+  const data=board();
+  const count=x=>data.slots.filter(s=>s.status===x).length;
+  document.getElementById('stTotal').textContent=data.ldCount;
+  document.getElementById('stRunning').textContent=count('running');
+  document.getElementById('stDone').textContent=data.completed.length;
+  document.getElementById('stSold').textContent=count('sold');
+  document.getElementById('stEmpty').textContent=count('empty');
+  document.getElementById('queueInfo').textContent=`Hàng chờ${activeModule==='gen'?' Gen':''}: ${data.queue.length} acc`;
   updateAutoCheckUi();
 }
-function setFilter(f,el){
-  filter=f;
-  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
-  el.classList.add('active');
-  render();
-}
+function setFilter(value){filter=value;render();}
 function addTab(){
-  state.ldCount++;
-  state.slots.push({
-    ld:state.ldCount,
-    mail:'',
-    pass:'',
-    uid:'',
-    status:'empty',
-    note:'',
-    startedAt:'',
-    info:null
-  });
-  save();
-  render();
-  toast(`Đã thêm Tab ${state.ldCount}`);
+  const data=board();
+  data.ldCount++;data.slots.push(blankSlot(data.ldCount,activeModule));
+  save();render();toast(`Đã thêm Tab ${data.ldCount} · ${moduleName()}`);
 }
-
 function addTabsPrompt(){
-  const raw=prompt('Nhập số lượng Tab muốn thêm:', '5');
+  const raw=prompt('Nhập số lượng Tab muốn thêm:','5');
   if(raw===null) return;
-  const n=parseInt(raw,10);
-  if(!Number.isInteger(n) || n<=0){
-    toast('Số lượng Tab không hợp lệ');
-    return;
-  }
-  if(n>200){
-    toast('Mỗi lần chỉ thêm tối đa 200 Tab');
-    return;
-  }
-  const start=state.ldCount+1;
+  const n=Number(raw);
+  if(!Number.isInteger(n)||n<=0){toast('Số lượng Tab không hợp lệ');return;}
+  if(n>200){toast('Mỗi lần chỉ thêm tối đa 200 Tab');return;}
+  const data=board(),start=data.ldCount+1;
   for(let i=0;i<n;i++){
-    state.ldCount++;
-    state.slots.push({
-      ld:state.ldCount,
-      mail:'',
-      pass:'',
-      uid:'',
-      status:'empty',
-      note:'',
-      startedAt:'',
-      info:null
-    });
+    data.ldCount++;data.slots.push(blankSlot(data.ldCount,activeModule));
   }
-  save();
-  render();
-  toast(`Đã thêm ${n} Tab (${start} → ${state.ldCount})`);
+  save();render();toast(`Đã thêm ${n} Tab (${start} → ${data.ldCount}) · ${moduleName()}`);
 }
-
 function removeLastTab(){
-  if(state.ldCount<=0){
-    toast('Hiện chưa có Tab nào');
-    return;
-  }
-  const last=state.slots[state.slots.length-1];
-  if(last && last.status!=='empty'){
-    if(!confirm(`Tab ${last.ld} đang có acc ${last.mail}. Vẫn xóa Tab này?`)) return;
-  }
-  state.slots.pop();
-  state.ldCount--;
-  save();
-  render();
-  toast('Đã xóa Tab cuối');
+  const data=board();
+  if(data.ldCount<=0){toast('Hiện chưa có Tab nào');return;}
+  const last=data.slots[data.slots.length-1];
+  if(last&&last.status!=='empty'&&!confirm(`Tab ${last.ld} đang có acc ${last.mail}. Vẫn xóa Tab này?`)) return;
+  data.slots.pop();data.ldCount--;save();render();toast('Đã xóa Tab cuối');
+}
+function parseAccountLine(line){
+  const parts=line.trim().split('|');
+  if(parts.length<3) return null;
+  const mail=parts[0].trim(),pass=parts[1].trim(),uid=parts.slice(2).join('|').trim();
+  return mail&&pass&&uid?{mail,pass,uid,note:'',info:null}:null;
 }
 function parseBulk(){
-  return bulkText.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean).map(line=>{
-    const parts=line.split('|');
-    if(parts.length<3) return null;
-    const mail=parts[0].trim();
-    const pass=parts[1].trim();
-    const uid=parts.slice(2).join('|').trim();
-    if(!mail || !pass || !uid) return null;
-    return {mail,pass,uid,note:'',info:null};
-  }).filter(Boolean);
+  return document.getElementById('bulkText').value.split(/\r?\n/).map(parseAccountLine).filter(Boolean);
 }
 function openBulk(){
-  bulkText.value='';
-  previewBulk();
-  bulkDlg.showModal();
+  bulkModule=activeModule;
+  document.getElementById('bulkTitle').textContent=`Thêm danh sách ${moduleName(bulkModule)}`;
+  document.getElementById('bulkText').value='';previewBulk();
+  document.getElementById('bulkDlg').showModal();
 }
 function previewBulk(){
   const accs=parseBulk();
-  const empty=state.slots.filter(s=>s.status==='empty');
-  bulkCount.textContent=`${accs.length} acc hợp lệ`;
-  bulkFree.textContent=`${empty.length} Tab trống`;
-  bulkQueue.textContent=`${Math.max(0,accs.length-empty.length)} acc sẽ vào hàng chờ`;
-
-  const rows=accs.map((a,i)=>{
-    const target=empty[i] ? `Tab ${empty[i].ld}` : 'Hàng chờ';
-    return `<div class="preview-row" style="grid-template-columns:80px 1.4fr 1fr 1fr">
-      <div><b>${target}</b></div>
-      <div>${esc(a.mail)}</div>
-      <div>${esc(a.pass)}</div>
-      <div>${esc(a.uid)}</div>
-    </div>`;
-  }).join('');
-
-  bulkPreview.innerHTML = accs.length
-    ? `<div class="preview-row preview-head" style="grid-template-columns:80px 1.4fr 1fr 1fr"><div>Tab</div><div>Gmail</div><div>Pass</div><div>UID</div></div>${rows}`
-    : `<div class="history-item small">Dán danh sách dạng gmail|pass|uid để xem trước cách chia tab.</div>`;
+  const empty=board(bulkModule).slots.filter(s=>s.status==='empty');
+  document.getElementById('bulkCount').textContent=`${accs.length} acc hợp lệ`;
+  document.getElementById('bulkFree').textContent=`${empty.length} Tab trống`;
+  document.getElementById('bulkQueue').textContent=`${Math.max(0,accs.length-empty.length)} acc sẽ vào hàng chờ`;
+  const rows=accs.map((a,i)=>`<div class="preview-row">
+    <div><b>${empty[i]?`Tab ${empty[i].ld}`:'Hàng chờ'}</b></div>
+    <div>${esc(a.mail)}</div><div>${esc(a.pass)}</div><div>${esc(a.uid)}</div>
+  </div>`).join('');
+  document.getElementById('bulkPreview').innerHTML=accs.length
+    ?`<div class="preview-row preview-head"><div>Tab</div><div>Gmail</div><div>Pass</div><div>UID</div></div>${rows}`
+    :'<div class="history-item small">Dán danh sách dạng gmail|pass|uid để xem trước cách chia Tab.</div>';
+}
+function assignAccount(slot,acc){
+  // Rank là cấu hình của Tab, giữ nguyên khi nhận acc mới từ hàng chờ.
+  Object.assign(slot,{mail:acc.mail,pass:acc.pass,uid:acc.uid||'',note:acc.note||'',info:null,status:'running',startedAt:now()});
 }
 function saveBulk(){
-  const accs=parseBulk();
+  const accs=parseBulk(),data=board(bulkModule);
   if(!accs.length){toast('Không có acc hợp lệ dạng gmail|pass|uid');return;}
-
-  let assigned=0, queued=0;
-  for(const a of accs){
-    const slot=state.slots.find(s=>s.status==='empty');
-    if(slot){
-      Object.assign(slot,{...a,status:'running',startedAt:now()});
-      state.history.unshift({time:now(),ld:slot.ld,text:`Nhận acc ${a.mail}`});
-      assigned++;
-    }else{
-      state.queue.push(a);
-      queued++;
-    }
+  let assigned=0,queued=0;
+  for(const acc of accs){
+    const slot=data.slots.find(s=>s.status==='empty');
+    if(slot){assignAccount(slot,acc);logHistory(bulkModule,slot.ld,`Nhận acc ${acc.mail}`);assigned++;}
+    else{data.queue.push(acc);queued++;}
   }
-
-  save();
-  bulkDlg.close();
-  render();
-  toast(`Đã chia ${assigned} acc vào Tab${queued ? `, ${queued} acc vào hàng chờ` : ''}`);
+  save();document.getElementById('bulkDlg').close();render();
+  toast(`Đã chia ${assigned} acc vào Tab${queued?`, ${queued} acc vào hàng chờ`:''} · ${moduleName(bulkModule)}`);
 }
 function fillEmptyFromQueue(){
-  let n=0;
-  for(const s of state.slots){
-    if(!state.queue.length) break;
+  const data=board();let n=0;
+  for(const s of data.slots){
+    if(!data.queue.length) break;
     if(s.status==='empty'){
-      const a=state.queue.shift();
-      Object.assign(s,{...a,status:'running',startedAt:now()});
-      state.history.unshift({time:now(),ld:s.ld,text:`Nhận acc ${a.mail}`});
-      n++;
+      const acc=data.queue.shift();assignAccount(s,acc);
+      logHistory(activeModule,s.ld,`Nhận acc ${acc.mail}`);n++;
     }
   }
-  save();render();
-  toast(n?`Đã điền ${n} acc vào Tab trống`:'Không có Tab trống hoặc hàng chờ đang rỗng');
+  save();render();toast(n?`Đã điền ${n} acc vào Tab trống`:'Không có Tab trống hoặc hàng chờ đang rỗng');
 }
-function assignNext(ld){
-  const s=state.slots[ld-1];
-  if(!state.queue.length){toast('Hàng chờ đang rỗng');return;}
-  const a=state.queue.shift();
-  Object.assign(s,{...a,status:'running',startedAt:now()});
-  state.history.unshift({time:now(),ld,text:`Nhận acc ${a.mail}`});
-  save();render();
+function assignNext(ld,moduleId=activeModule){
+  const data=board(moduleId),s=data.slots[ld-1];
+  if(!s||s.status!=='empty') return;
+  if(!data.queue.length){toast('Hàng chờ đang rỗng');return;}
+  const acc=data.queue.shift();assignAccount(s,acc);
+  logHistory(moduleId,ld,`Nhận acc ${acc.mail}`);save();render();
 }
-function completeSlot(ld){
-  const s=state.slots[ld-1];
-  if(!s || s.status==='empty') return;
-
-  // Chuyển acc hiện tại sang danh sách đã cày xong, không hiện popup xác nhận.
-  state.completed.unshift({
-    mail:s.mail,
-    pass:s.pass,
-    uid:s.uid || '',
-    note:s.note || '',
-    completedAt:now()
-  });
-  state.history.unshift({time:now(),ld,text:`Cày xong ${s.mail}`});
-
-  // Xóa acc khỏi ô LD hiện tại.
-  state.slots[ld-1]={
-    ld,
-    mail:'',
-    pass:'',
-    uid:'',
-    status:'empty',
-    note:'',
-    startedAt:'',
-    info:null
-  };
-
-  // Nếu còn acc trong hàng chờ thì tự đưa acc tiếp theo vào đúng LD vừa trống.
-  if(state.queue.length){
-    const a=state.queue.shift();
-    Object.assign(state.slots[ld-1],{
-      ...a,
-      status:'running',
-      startedAt:now()
-    });
-    state.history.unshift({time:now(),ld,text:`Tự thay acc mới ${a.mail}`});
+function completeSlot(ld,moduleId=activeModule,source='manual'){
+  const data=board(moduleId),s=data.slots[ld-1];
+  if(!s||s.status==='empty'||!s.mail) return false;
+  data.completed.unshift({mail:s.mail,pass:s.pass,uid:s.uid||'',note:s.note||'',
+    targetPoints:targetPoints(s,moduleId),info:s.info&&!s.info.loading?s.info:null,
+    ld,source,completedAt:now()});
+  logHistory(moduleId,ld,`Hoàn thành ${s.mail} → ${completionTitle(moduleId)}`);
+  data.slots[ld-1]=blankSlot(ld,moduleId,targetPoints(s,moduleId));
+  if(data.queue.length){
+    const acc=data.queue.shift();assignAccount(data.slots[ld-1],acc);
+    logHistory(moduleId,ld,`Tự thay acc mới ${acc.mail}`);
   }
-
+  save();render();toast(`Tab ${ld} · ${moduleName(moduleId)} → ${completionTitle(moduleId)}`);
+  return true;
+}
+function markSold(ld,moduleId=activeModule){
+  const s=board(moduleId).slots[ld-1];
+  if(!s||!confirm(`Đánh dấu đã bán acc ở Tab ${ld}?`)) return;
+  s.status='sold';logHistory(moduleId,ld,`Đã bán ${s.mail}`);save();render();
+}
+function clearSlot(ld,moduleId=activeModule){
+  const data=board(moduleId),s=data.slots[ld-1];
+  if(!s) return;
+  if(s.status!=='empty'&&!confirm(`Thay acc trong Tab ${ld}?\nAcc hiện tại: ${s.mail}`)) return;
+  if(s.status!=='empty') logHistory(moduleId,ld,`Rời vị trí: ${s.mail}`);
+  data.slots[ld-1]=blankSlot(ld,moduleId,targetPoints(s,moduleId));
   save();
-  render();
+  if(data.queue.length) assignNext(ld,moduleId);else render();
 }
-function markSold(ld){
-  const s=state.slots[ld-1];
-  if(!confirm(`Đánh dấu đã bán acc ở Tab ${ld}?`)) return;
-  s.status='sold';
-  state.history.unshift({time:now(),ld,text:`Đã bán ${s.mail}`});
-  save();render();
-}
-function clearSlot(ld){
-  const s=state.slots[ld-1];
-  if(s.status!=='empty' && !confirm(`Thay acc trong Tab ${ld}?\\nAcc hiện tại: ${s.mail}`)) return;
-  if(s.status!=='empty') state.history.unshift({time:now(),ld,text:`Rời vị trí: ${s.mail}`});
-  state.slots[ld-1]={ld,mail:'',pass:'',uid:'',status:'empty',note:'',startedAt:'',info:null};
-  save();
-  if(state.queue.length) assignNext(ld); else render();
-}
-function manualInput(ld){
-  editing=ld;
-  manualTitle.textContent=`Nhập thủ công cho Tab ${ld}`;
-  manualLine.value='';
-  manualDlg.showModal();
+function manualInput(ld,moduleId=activeModule){
+  editing={ld,moduleId};
+  document.getElementById('manualTitle').textContent=`Nhập ${moduleName(moduleId)} · Tab ${ld}`;
+  document.getElementById('manualLine').value='';document.getElementById('manualDlg').showModal();
 }
 function saveManual(){
-  const line=manualLine.value.trim();
-  const parts=line.split('|');
-  if(parts.length<3){toast('Nhập đúng dạng gmail|pass|uid');return;}
-  const mail=parts[0].trim();
-  const pass=parts[1].trim();
-  const uid=parts.slice(2).join('|').trim();
-  if(!mail || !pass || !uid){toast('Nhập đúng dạng gmail|pass|uid');return;}
-  const s=state.slots[editing-1];
-  Object.assign(s,{
-    mail,pass,uid,note:'',info:null,
-    status:'running',
-    startedAt:now()
-  });
-  state.history.unshift({time:now(),ld:editing,text:`Nhập thủ công acc ${mail} | UID ${uid}`});
-  save();
-  manualDlg.close();
-  render();
-  toast(`Đã thêm acc + UID vào Tab ${editing}`);
+  const acc=parseAccountLine(document.getElementById('manualLine').value);
+  if(!acc){toast('Nhập đúng dạng gmail|pass|uid');return;}
+  const {ld,moduleId}=editing;
+  const s=board(moduleId).slots[ld-1];
+  if(!s) return;
+  assignAccount(s,acc);logHistory(moduleId,ld,`Nhập thủ công acc ${acc.mail} | UID ${acc.uid}`);
+  save();document.getElementById('manualDlg').close();render();toast(`Đã thêm acc + UID vào Tab ${ld} · ${moduleName(moduleId)}`);
 }
-
-function deleteCompleted(index){
-  const item=state.completed[index];
-  if(!item) return;
-  if(!confirm(`Xóa acc này khỏi mục Đã cày xong?\n${item.mail}|${item.pass}`)) return;
-  state.history.unshift({
-    time:now(),
-    ld:'-',
-    text:`Xóa khỏi mục đã cày xong: ${item.mail}`
-  });
-  state.completed.splice(index,1);
-  save();
-  render();
-  toast('Đã xóa acc khỏi mục Đã cày xong');
+function deleteCompleted(index,moduleId=activeModule){
+  const data=board(moduleId),item=data.completed[index];
+  if(!item||!confirm(`Xóa acc này khỏi mục ${completionTitle(moduleId)}?\n${item.mail}`)) return;
+  logHistory(moduleId,'-',`Xóa khỏi ${completionTitle(moduleId)}: ${item.mail}`);
+  data.completed.splice(index,1);save();render();toast('Đã xóa acc khỏi mục hoàn thành');
 }
-
-function deleteAllCompleted(){
-  if(!state.completed.length){
-    toast('Không có acc để xóa');
-    return;
-  }
-  if(!confirm(`Xóa toàn bộ ${state.completed.length} acc trong mục Đã cày xong?`)) return;
-  const count=state.completed.length;
-  state.history.unshift({
-    time:now(),
-    ld:'-',
-    text:`Xóa toàn bộ ${count} acc khỏi mục đã cày xong`
-  });
-  state.completed=[];
-  save();
-  render();
-  toast(`Đã xóa ${count} acc`);
+function deleteAllCompleted(moduleId=activeModule){
+  const data=board(moduleId);
+  if(!data.completed.length){toast('Không có acc để xóa');return;}
+  if(!confirm(`Xóa toàn bộ ${data.completed.length} acc trong mục ${completionTitle(moduleId)}?`)) return;
+  const count=data.completed.length;
+  logHistory(moduleId,'-',`Xóa toàn bộ ${count} acc khỏi ${completionTitle(moduleId)}`);
+  data.completed=[];save();render();toast(`Đã xóa ${count} acc`);
 }
-
-function copyDoneAll(){
-  if(!state.completed.length){toast('Chưa có acc đã cày xong');return;}
-  const text=state.completed.map(x=>`${x.mail}|${x.pass}`).join('\n');
-  copyText(text);
+function copyDoneAll(moduleId=activeModule){
+  const arr=board(moduleId).completed;
+  if(!arr.length){toast('Chưa có acc hoàn thành');return;}
+  copyText(arr.map(x=>accountLine(x,moduleId)).join('\n'));
 }
-
-function editSlot(ld){
-  editing=ld;
-  const s=state.slots[ld-1];
-  editTitle.textContent=`Chỉnh sửa Tab ${ld}`;
-  eMail.value=s.mail||'';
-  ePass.value=s.pass||'';
-  eUid.value=s.uid||'';
-  eStatus.value=s.status==='empty'?'running':s.status;
-  eNote.value=s.note||'';
-  editDlg.showModal();
+function editSlot(ld,moduleId=activeModule){
+  editing={ld,moduleId};
+  const s=board(moduleId).slots[ld-1];
+  document.getElementById('editTitle').textContent=`Chỉnh sửa ${moduleName(moduleId)} · Tab ${ld}`;
+  document.getElementById('eMail').value=s.mail||'';
+  document.getElementById('ePass').value=s.pass||'';
+  document.getElementById('eUid').value=s.uid||'';
+  document.getElementById('eStatus').value=s.status==='empty'?'running':s.status;
+  document.getElementById('eTargetRank').innerHTML=rankOptions(targetPoints(s,moduleId));
+  document.getElementById('eNote').value=s.note||'';
+  document.getElementById('editDlg').showModal();
 }
 function saveEdit(){
-  const s=state.slots[editing-1];
-  const was=s.mail;
-  const oldUid=s.uid||'';
-  Object.assign(s,{
-    mail:eMail.value.trim(),
-    pass:ePass.value.trim(),
-    uid:eUid.value.trim(),
-    status:eMail.value.trim()?eStatus.value:'empty',
-    note:eNote.value.trim(),
-    startedAt:s.startedAt || (eMail.value.trim()?now():'')
-  });
-  if(oldUid!==s.uid) s.info=null;
-  if(was!==s.mail) state.history.unshift({time:now(),ld:editing,text:`Đổi acc: ${was||'trống'} → ${s.mail||'trống'}`});
-  save();editDlg.close();render();toast('Đã lưu');
+  const {ld,moduleId}=editing,data=board(moduleId),s=data.slots[ld-1];
+  if(!s) return;
+  const mail=document.getElementById('eMail').value.trim();
+  const pass=document.getElementById('ePass').value.trim();
+  const uid=document.getElementById('eUid').value.trim();
+  if(mail&&(!pass||!uid)){toast('Nhập đủ Gmail, mật khẩu và UID');return;}
+  const was=s.mail,changed=s.mail!==mail||s.pass!==pass||s.uid!==uid;
+  const target=Number(document.getElementById('eTargetRank').value);
+  if(!mail){data.slots[ld-1]=blankSlot(ld,moduleId,target);}
+  else{
+    Object.assign(s,{mail,pass,uid,status:document.getElementById('eStatus').value,
+      note:document.getElementById('eNote').value.trim(),targetPoints:target,
+      startedAt:changed?now():(s.startedAt||now())});
+    if(changed) s.info=null;
+  }
+  if(was!==mail) logHistory(moduleId,ld,`Đổi acc: ${was||'trống'} → ${mail||'trống'}`);
+  document.getElementById('editDlg').close();
+  if(mail&&s.status==='done'){completeSlot(ld,moduleId);return;}
+  save();render();toast('Đã lưu');
 }
 async function copyText(text){
-  try{await navigator.clipboard.writeText(text);toast('Đã sao chép')}
-  catch{prompt('Sao chép:',text)}
+  try{await navigator.clipboard.writeText(text);toast('Đã sao chép');}
+  catch{prompt('Sao chép:',text);}
 }
 function openHistory(){
-  historyBox.innerHTML=state.history.length?state.history.map(h=>
-    `<div class="history-item"><b>Tab ${h.ld}</b> — ${esc(h.text)}<div class="small">${esc(h.time)}</div></div>`
-  ).join(''):`<div class="history-item small">Chưa có lịch sử.</div>`;
-  historyDlg.showModal();
+  const arr=state.history.filter(h=>(h.module||'standard')===activeModule);
+  document.getElementById('historyBox').innerHTML=arr.length?arr.map(h=>
+    `<div class="history-item"><b>${esc(moduleName())} · Tab ${esc(h.ld)}</b> — ${esc(h.text)}<div class="small">${esc(h.time)}</div></div>`
+  ).join(''):'<div class="history-item small">Chưa có lịch sử.</div>';
+  document.getElementById('historyDlg').showModal();
 }
-function exportDone(){
-  const arr=state.completed;
+function exportDone(moduleId=activeModule){
+  const arr=board(moduleId).completed;
   if(!arr.length){toast('Chưa có acc hoàn thành để xuất');return;}
-  const txt=arr.map(x=>`${x.mail}|${x.pass}`).join('\n');
-  const blob=new Blob([txt],{type:'text/plain;charset=utf-8'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download='acc_da_cay_xong.txt';
-  a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  const blob=new Blob([arr.map(x=>accountLine(x,moduleId)).join('\n')],{type:'text/plain;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download=moduleId==='gen'?'gen_huyen_thoai_sinh_ton.txt':'acc_da_cay_xong.txt';
+  a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
 function resetAll(){
-  if(!confirm('Xóa toàn bộ dữ liệu web? Hành động này không thể hoàn tác.')) return;
-  localStorage.removeItem(KEY);
-  location.reload();
+  if(!confirm('Xóa toàn bộ dữ liệu Acc Free Fire và Acc Gen? Hành động này không thể hoàn tác.')) return;
+  localStorage.removeItem(KEY);location.reload();
 }
 init();
 </script>
